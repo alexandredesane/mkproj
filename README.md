@@ -11,14 +11,14 @@ and full control over their workflow.
 
 
 If you often write project structures like this:
-
+<pre><code>
 my-app/
   index.html
   styles.css
   app.js
   assets/
     icon.png
-
+</code></pre>
 …and then manually create folders and files one by one,
 mkproj is for you.
 
@@ -57,42 +57,42 @@ This tool is intentionally opinionated.
 
 
 1. Create the command file:
-
+<pre><code>
 mkdir -p ~/.local/bin
 nano ~/.local/bin/mkproj
-
+</code></pre>
 Paste the script content into the file.
 
 2. Make it executable:
-
+<pre><code>
 chmod +x ~/.local/bin/mkproj
-
+</code></pre>
 3. Ensure ~/.local/bin is in your PATH:
 
 For zsh (default on macOS):
-
+<pre><code>
 export PATH="$HOME/.local/bin:$PATH"
-
+</code></pre>
 
 # USAGE
 
 
 Create files and folders from a tree file:
-
+<pre><code>
 mkproj tree.txt
-
+</code></pre>
 Preview what will be created (dry run):
-
+<pre><code>
 mkproj --dry-run tree.txt
-
+</code></pre>
 Force indentation size (2 or 4 spaces):
-
+<pre><code>
 mkproj --indent 2 tree.txt
-
+</code></pre>
 Read from standard input:
-
+<pre><code>
 cat tree.txt | mkproj -
-
+</code></pre>
 
 # TREE FILE FORMAT
 
@@ -105,7 +105,7 @@ Rules:
 - Comments can be added using # 
 
 Example tree.txt:
-
+<pre><code>
 app/
   index.html
   styles.css
@@ -116,7 +116,7 @@ app/
   icons/
     icon-192.png
     icon-512.png
-
+</code></pre>
 
 # LICENSE
 
