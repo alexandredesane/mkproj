@@ -106,7 +106,7 @@ Rules:
 
 Example tree.txt:
 
-client-tracker/
+app/
   index.html
   styles.css
   app.js

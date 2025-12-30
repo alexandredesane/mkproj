@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Temporary / backup files
+*~
+*.swp
+*.swo
+
+# Shell temp files
+*.tmp
+
+# Node / tooling (if ever used)
+node_modules/
+
+# OS trash
+.Trashes
