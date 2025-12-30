@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DRY_RUN=0
+QUIET=0
+FORCE_INDENT=0
+INPUT=""
+
+say() { [[ "$QUIET" -eq 1 ]] || echo "$@"; }
+die() { echo "Error: $*" >&2; exit 1; }
+
+usage() {
+  cat <<'USAGE'
+mkproj — create directories/files from an indented tree file.
+
+Usage:
+  mkproj <tree.txt>
+  mkproj -            # read from stdin
+
+Options:
+  --dry-run           Print actions, do not create anything
+  --quiet             Less output
+  --indent N          Force indent size (2 or 4). Auto by default
+
+Tree format:
+  - directories end with /
+  - indentation uses spaces (2 or 4)
+Example:
+  app/
+    index.html
+    icons/
+      icon-192.png
+USAGE
+}
+
+# -------- args
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) DRY_RUN=1; shift ;;
+    --quiet) QUIET=1; shift ;;
+    --indent) shift; FORCE_INDENT="${1:-0}"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    -) INPUT="-"; shift ;;
+    *)
+      [[ -z "$INPUT" ]] || die "Too many arguments. Use -h."
+      INPUT="$1"; shift ;;
+  esac
+done
+
+[[ -n "$INPUT" ]] || { usage; exit 1; }
+[[ "$INPUT" == "-" || -f "$INPUT" ]] || die "File not found: $INPUT"
+
+# -------- small helpers (macOS compatible)
+rtrim() { sed -E 's/[[:space:]]+$//'; }
+strip_cr() { sed -E 's/\r$//'; }
+
+gcd() {
+  # gcd a b
+  local a="$1" b="$2" t
+  while (( b != 0 )); do
+    t=$(( a % b ))
+    a="$b"
+    b="$t"
+  done
+  echo "$a"
+}
+
+detect_indent() {
+  # SMART detection:
+  # - computes gcd of all non-zero leading-space counts
+  # - snaps to 2 or 4 when sensible
+  # - validates all indents are multiples of chosen indent
+  local g=0
+  local saw_tab=0
+  local counts=()
+
+  while IFS= read -r l; do
+    l="${l%$'\r'}"
+    [[ -z "${l// }" ]] && continue
+    [[ "$l" =~ ^\`{3} ]] && continue
+
+    # Tabs are ambiguous for indentation-based trees
+    if [[ "$l" == *$'\t'* ]]; then
+      saw_tab=1
+      continue
+    fi
+
+    local lead="${l%%[^ ]*}"
+    local n=${#lead}
+    if (( n > 0 )); then
+      counts+=("$n")
+      if (( g == 0 )); then
+        g="$n"
+      else
+        g="$(gcd "$g" "$n")"
+      fi
+    fi
+  done <<< "$1"
+
+  (( saw_tab == 0 )) || die "Tabs detected in tree file. Use spaces only."
+
+  # No indented lines => default
+  if (( ${#counts[@]} == 0 )); then
+    echo 2; return
+  fi
+
+  # Snap logic: most trees are 2 or 4 spaces
+  local indent="$g"
+
+  # If gcd is 1 but all indents are even, prefer 2
+  if (( indent == 1 )); then
+    local all_even=1
+    for n in "${counts[@]}"; do
+      if (( n % 2 != 0 )); then all_even=0; break; fi
+    done
+    if (( all_even == 1 )); then indent=2; fi
+  fi
+
+  # Normalize to 2 or 4 when possible (common case)
+  if (( indent != 2 && indent != 4 )); then
+    # Prefer 2 if everything is multiple of 2
+    local all_mult2=1
+    for n in "${counts[@]}"; do
+      if (( n % 2 != 0 )); then all_mult2=0; break; fi
+    done
+    if (( all_mult2 == 1 )); then
+      indent=2
+    else
+      # Otherwise prefer 4 if everything is multiple of 4
+      local all_mult4=1
+      for n in "${counts[@]}"; do
+        if (( n % 4 != 0 )); then all_mult4=0; break; fi
+      done
+      if (( all_mult4 == 1 )); then indent=4; fi
+    fi
+  fi
+
+  # Final validation: every indent must be multiple of chosen indent
+  for n in "${counts[@]}"; do
+    if (( n % indent != 0 )); then
+      die "Inconsistent indentation: found ${n} leading spaces, not divisible by chosen indent=${indent}. Fix tree file or use --indent."
+    fi
+  done
+
+  echo "$indent"
+}
+
+
+
+do_mkdir() {
+  say "mkdir -p \"$1\""
+  [[ "$DRY_RUN" -eq 1 ]] || mkdir -p "$1"
+}
+
+do_touch() {
+  say "touch \"$1\""
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    mkdir -p "$(dirname "$1")"
+    : > "$1"
+  fi
+}
+
+get_parent() {
+  # get_parent <lvl> ; prints parent path or empty
+  local lvl="$1"
+  if (( lvl <= 0 )); then
+    echo ""
+  else
+    echo "${stack[$((lvl-1))]:-}"
+  fi
+}
+
+# -------- read input
+CONTENT="$( [[ "$INPUT" == "-" ]] && cat || cat "$INPUT" )"
+CONTENT="$(printf "%s\n" "$CONTENT" | strip_cr | rtrim)"
+
+INDENT="$FORCE_INDENT"
+if [[ "$INDENT" == "0" || -z "$INDENT" ]]; then
+  INDENT="$(detect_indent "$CONTENT")"
+fi
+[[ "$INDENT" == "2" || "$INDENT" == "4" ]] || die "--indent must be 2 or 4"
+say "ℹ️  indent = ${INDENT}"
+
+# stack[level]=path
+declare -a stack=()
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ -z "${line// }" ]] && continue
+  [[ "$line" =~ ^\`{3} ]] && continue
+
+  lead="${line%%[^ ]*}"
+  lvl=$(( ${#lead} / INDENT ))
+  name="${line#$lead}"
+
+  # remove inline comments
+  name="${name%%#*}"
+  name="$(printf "%s" "$name" | rtrim)"
+  [[ -z "$name" ]] && continue
+
+  if [[ "$name" == */ ]]; then
+    dir="${name%/}"
+    parent="$(get_parent "$lvl")"
+    path="${parent:+$parent/}$dir"
+    do_mkdir "$path"
+    stack[$lvl]="$path"
+  else
+    parent="$(get_parent "$lvl")"
+    [[ -n "$parent" ]] || die "File without parent directory near: '$line'"
+    do_touch "$parent/$name"
+  fi
+done <<< "$CONTENT"
+
+say "✅ Done."
